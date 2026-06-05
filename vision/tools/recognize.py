@@ -477,6 +477,14 @@ class TemplateMatch(VisionTool):
         template = self._template_cache
         score_curve = []  # 初始化，防止非rotation模式引用报错
         if template is None:
+            # 尝试从 template_path 重新加载模板（兼容保存方案后重新运行的情况）
+            template_path = self.params.get("template_path", "")
+            if template_path:
+                template = cv2.imread(template_path, cv2.IMREAD_COLOR)
+                if template is not None:
+                    self._template_cache = template
+
+        if template is None:
             return ToolResult(
                 success=False, passed=False,
                 processed_image=img, data={},
