@@ -12,6 +12,7 @@ from PyQt5.QtGui import QPixmap, QImage
 
 from camera_manager import CameraManager
 from core.log_manager import log_info, log_error
+from .zoomable_label import ZoomableLabel
 
 
 class CameraPanel(QWidget):
@@ -33,9 +34,9 @@ class CameraPanel(QWidget):
     GAIN_STEP = 1.0            # dB
     FRAME_RATE_STEP = 1.0      # fps
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, camera_mgr=None):
         super().__init__(parent)
-        self.cam_mgr = CameraManager()
+        self.cam_mgr = camera_mgr if camera_mgr is not None else CameraManager()
         self._device_data = {}
         self._is_capturing = False
 
@@ -141,14 +142,14 @@ class CameraPanel(QWidget):
         display_title = QLabel("实时画面")
         display_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #d4d4d4;")
 
-        self.display_label = QLabel()
-        self.display_label.setStyleSheet("""
-            background-color: #0d0d0d; border: 1px solid #444;
-            border-radius: 3px;
-        """)
+        self.display_label = ZoomableLabel("相机未打开")
         self.display_label.setMinimumSize(640, 480)
-        self.display_label.setAlignment(Qt.AlignCenter)
-        self.display_label.setText("相机未打开")
+        self.display_label.setStyleSheet("""
+            ZoomableLabel {
+                background-color: #0d0d0d; border: 1px solid #444;
+                border-radius: 3px;
+            }
+        """)
 
         display_layout.addWidget(display_title)
         display_layout.addWidget(self.display_label, 1)
@@ -396,8 +397,16 @@ class CameraPanel(QWidget):
 
     # ========== 设备枚举 ==========
 
-    def enumerate_devices(self):
-        """异步枚举相机设备"""
+    def enumerate_devices(self, callback=None):
+        """异步枚举相机设备
+
+        Args:
+            callback: 可选的回调函数，枚举完成后调用，接收 (devices, success) 参数
+        """
+        # 兼容按钮信号传递的布尔参数（QPushButton.clicked 会传递 checked 状态）
+        if isinstance(callback, bool):
+            callback = None
+
         self.refresh_btn.setEnabled(False)
         self.refresh_btn.setText("搜索中...")
         self.status_bar.showMessage("正在搜索相机...")
@@ -415,10 +424,10 @@ class CameraPanel(QWidget):
                 self.finished.emit(devices)
 
         self._enum_thread = EnumThread(self.cam_mgr)
-        self._enum_thread.finished.connect(self._on_enum_finished)
+        self._enum_thread.finished.connect(lambda devices: self._on_enum_finished(devices, callback))
         self._enum_thread.start()
 
-    def _on_enum_finished(self, devices):
+    def _on_enum_finished(self, devices, callback=None):
         try:
             self.device_combo.clear()
             self._device_data = {}
@@ -447,8 +456,13 @@ class CameraPanel(QWidget):
             msg = f"发现 {len(devices)} 个相机"
             self.status_bar.showMessage(msg)
             self.status_message.emit(msg)
+
+            # 调用回调
+            if callback is not None:
+                callback(devices, len(devices) > 0)
         except RuntimeError:
-            pass
+            if callback is not None:
+                callback([], False)
         finally:
             try:
                 self.refresh_btn.setEnabled(True)
@@ -490,6 +504,7 @@ class CameraPanel(QWidget):
             self.capture_btn.setEnabled(True)
             self.trigger_combo.setEnabled(True)
             self.trigger_btn.setEnabled(self.cam_mgr.is_trigger_mode)
+            self.display_label.clear_pixmap()
             self.display_label.setText("实时画面中...")
 
             # 默认开启自动曝光和自动增益
@@ -527,7 +542,7 @@ class CameraPanel(QWidget):
             self.capture_btn.setEnabled(False)
             self.trigger_combo.setEnabled(False)
             self.trigger_btn.setEnabled(False)
-            self.display_label.clear()
+            self.display_label.clear_pixmap()
             self.display_label.setText("相机未打开")
 
             # 重置参数显示
@@ -705,12 +720,20 @@ class CameraPanel(QWidget):
     def _on_frame_received(self, width, height, pixel_type, img_bytes):
         """实时帧回调"""
         self.frame_received.emit(width, height, pixel_type, img_bytes)
-        CameraManager.display_on_label(self.display_label, width, height,
-                                       pixel_type, img_bytes)
+        # 使用 ZoomableLabel 显示（支持缩放）
+        qimg = CameraManager.convert_to_qimage(width, height, pixel_type, img_bytes)
+        if qimg is not None:
+            self.display_label.set_image(qimg)
 
     def capture_once(self):
         """拍照"""
         if self._is_capturing:
+            return
+
+        # 检查控件是否已被删除（防止相机初始化失败后的对象生命周期问题）
+        try:
+            self.capture_btn.isWidgetType()
+        except RuntimeError:
             return
 
         self._is_capturing = True
@@ -741,8 +764,10 @@ class CameraPanel(QWidget):
 
         if result is not None:
             width, height, pixel_type, img_bytes = result
-            CameraManager.display_on_label(self.display_label, width, height,
-                                           pixel_type, img_bytes)
+            # 使用 ZoomableLabel 显示（支持缩放）
+            qimg = CameraManager.convert_to_qimage(width, height, pixel_type, img_bytes)
+            if qimg is not None:
+                self.display_label.set_image(qimg)
             self.capture_completed.emit(width, height, pixel_type, img_bytes)
             msg = f"拍照完成: {width}x{height}"
             self.status_bar.showMessage(msg)
@@ -753,6 +778,26 @@ class CameraPanel(QWidget):
             self.status_bar.showMessage("拍照失败")
             self.status_message.emit("拍照失败")
             log_error("拍照失败")
+
+    # ========== 自动连接 ==========
+
+    def auto_connect_camera(self):
+        """自动枚举并连接第一个可用的相机设备"""
+        self.status_bar.showMessage("正在自动搜索相机...")
+        self.status_message.emit("正在自动搜索相机...")
+        self.enumerate_devices(callback=self._on_auto_enum_finished)
+
+    def _on_auto_enum_finished(self, devices, found):
+        if found and len(devices) > 0:
+            # 自动选择第一个设备
+            self.device_combo.setCurrentIndex(0)
+            # 自动打开相机
+            self.open_camera()
+        else:
+            msg = "未发现相机设备，请手动连接"
+            self.status_bar.showMessage(msg)
+            self.status_message.emit(msg)
+            log_info("自动连接相机: 未发现设备")
 
     # ========== 公共接口 ==========
 

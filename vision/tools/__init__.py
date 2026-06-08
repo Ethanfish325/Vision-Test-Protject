@@ -17,7 +17,8 @@ from .measure import (
     LineMeasure, AngleMeasure, ObjectCount
 )
 from .recognize import (
-    ColorRecognition, TemplateMatch, EdgeMatch, FastMatch
+    ColorRecognition, TemplateMatch, EdgeMatch, FastMatch,
+    FootPadDetect
 )
 from .utility import (
     CoordinateTransform, Calculator, LogicJudge

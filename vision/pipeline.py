@@ -40,6 +40,7 @@ CN_TO_EN: Dict[str, str] = {
     "模板匹配": "TemplateMatch",
     "边缘匹配": "EdgeMatch",
     "快速匹配": "FastMatch",
+    "脚垫识别": "FootPadDetect",
     "坐标转换": "CoordinateTransform",
     "计算器": "Calculator",
     "数值计算": "Calculator",
@@ -71,7 +72,8 @@ _TOOL_CATEGORIES: Dict[str, List[str]] = {
         "LineMeasure", "AngleMeasure", "ObjectCount"
     ],
     "识别": [
-        "ColorRecognition", "TemplateMatch", "EdgeMatch", "FastMatch"
+        "ColorRecognition", "TemplateMatch", "EdgeMatch", "FastMatch",
+        "FootPadDetect"
     ],
     "工具": [
         "CoordinateTransform", "Calculator", "LogicJudge"
@@ -88,7 +90,7 @@ def _register_all_tools():
         "geometry": ["CircleDetection", "HoughLineDetection", "ContourRectDetection", "SimpleBlobDetect"],
         "measure": ["AreaMeasure", "DistanceMeasure", "PointMeasure",
                     "LineMeasure", "AngleMeasure", "ObjectCount"],
-        "recognize": ["ColorRecognition", "TemplateMatch", "EdgeMatch", "FastMatch"],
+        "recognize": ["ColorRecognition", "TemplateMatch", "EdgeMatch", "FastMatch", "FootPadDetect"],
         "utility": ["CoordinateTransform", "Calculator", "LogicJudge"],
     }
 

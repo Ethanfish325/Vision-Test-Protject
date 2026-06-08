@@ -34,32 +34,32 @@
             "name": "脚垫1",
             "x": 105,
             "y": 264,
-            "width": 226,
-            "height": 235,
+            "width": 230,
+            "height": 230,
             "enabled": true
           },
           {
             "name": "脚垫2",
-            "x": 2510,
-            "y": 245,
-            "width": 255,
-            "height": 337,
+            "x": 2500,
+            "y": 290,
+            "width": 230,
+            "height": 230,
             "enabled": true
           },
           {
             "name": "脚垫3",
-            "x": 2510,
-            "y": 1398,
-            "width": 249,
-            "height": 269,
+            "x": 2480,
+            "y": 1420,
+            "width": 230,
+            "height": 230,
             "enabled": true
           },
           {
             "name": "脚垫4",
-            "x": 81,
-            "y": 1365,
-            "width": 254,
-            "height": 289,
+            "x": 80,
+            "y": 1370,
+            "width": 230,
+            "height": 230,
             "enabled": true
           }
         ],
@@ -69,60 +69,69 @@
       "judge_rule": null
     },
     {
-      "tool_type": "Grayscale",
+      "tool_type": "FootPadDetect",
       "params": {
-        "input_source": "区域:区域2",
-        "method": "标准"
+        "_input_source": "region:脚垫1",
+        "dp": 1.2,
+        "minDist": 200,
+        "param1": 50,
+        "param2": 30,
+        "minRadius": 100,
+        "maxRadius": 300,
+        "roi_ratio": 3,
+        "variance_threshold": 15,
+        "edge_density_threshold": 0.05
       },
       "enabled": true,
       "judge_rule": null
     },
     {
-      "tool_type": "ColorRecognition",
+      "tool_type": "FootPadDetect",
       "params": {
-        "color_name": "白色",
-        "h_min": 0,
-        "s_min": 0,
-        "v_min": 200,
-        "h_max": 180,
-        "s_max": 30,
-        "v_max": 255,
-        "min_area": 100,
-        "pass_min": 0,
-        "pass_max": 100,
-        "color_space": "HSV",
-        "analyze_regions": false,
-        "_input_source": "region:标签1"
+        "_input_source": "region:脚垫2",
+        "dp": 1.2,
+        "minDist": 200,
+        "param1": 50,
+        "param2": 30,
+        "minRadius": 100,
+        "maxRadius": 300,
+        "roi_ratio": 3,
+        "variance_threshold": 15,
+        "edge_density_threshold": 0.05
       },
       "enabled": true,
       "judge_rule": null
     },
     {
-      "tool_type": "ColorRecognition",
+      "tool_type": "FootPadDetect",
       "params": {
-        "_input_source": "region:标签2",
-        "color_name": "白色",
-        "h_min": 0,
-        "s_min": 0,
-        "v_min": 200,
-        "h_max": 180,
-        "s_max": 30,
-        "v_max": 255
+        "_input_source": "region:脚垫3",
+        "dp": 1.2,
+        "minDist": 200,
+        "param1": 50,
+        "param2": 30,
+        "minRadius": 100,
+        "maxRadius": 300,
+        "roi_ratio": 3,
+        "variance_threshold": 15,
+        "edge_density_threshold": 0.05
       },
       "enabled": true,
       "judge_rule": null
     },
     {
-      "tool_type": "ColorRecognition",
+      "tool_type": "FootPadDetect",
       "params": {
-        "color_name": "白色",
-        "h_min": 0,
-        "s_min": 0,
-        "v_min": 200,
-        "h_max": 180,
-        "s_max": 30,
-        "v_max": 255,
-        "_input_source": "region:标签3"
+        "_input_source": "region:脚垫4",
+        "dp": 1.2,
+        "minDist": 200,
+        "param1": 50,
+        "param2": 30,
+        "minRadius": 100,
+        "maxRadius": 300,
+        "roi_ratio": 3,
+        "variance_threshold": 15,
+        "edge_density_threshold": 0.05
       },
       "enabled": true,
       "judge_rule": null

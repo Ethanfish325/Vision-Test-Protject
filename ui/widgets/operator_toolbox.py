@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QListWidget, QListWidgetItem,
 from PyQt5.QtCore import Qt, QSize, QPoint, QMimeData, QEvent
 from PyQt5.QtGui import QDrag, QPixmap, QPainter, QColor, QFont, QIcon, QBrush, QCursor
 
-from ..constants import CATEGORY_COLORS, CATEGORY_ICONS
+from ..constants import CATEGORY_ICONS
 
 
 class DraggableOperatorItem(QListWidgetItem):
@@ -14,10 +14,9 @@ class DraggableOperatorItem(QListWidgetItem):
         super().__init__(tool_name)
         self._tool_name = tool_name
         self._category = category
-        color = QColor(CATEGORY_COLORS.get(category, "#333333"))
-        self.setForeground(color)
+        self.setForeground(QColor("#d4d4d4"))
         self.setToolTip(f"{category} - {tool_name}")
-        self.setSizeHint(QSize(0, 36))
+        self.setSizeHint(QSize(0, 32))
 
     def tool_name(self) -> str:
         return self._tool_name
@@ -28,19 +27,16 @@ class DraggableOperatorItem(QListWidgetItem):
 
 class OperatorCategoryItem(QListWidgetItem):
     def __init__(self, category: str):
-        super().__init__(f"  {CATEGORY_ICONS.get(category, '')} {category}")
+        icon = CATEGORY_ICONS.get(category, "")
+        super().__init__(f"{icon}  {category}")
         self._category = category
         font = QFont()
         font.setBold(True)
-        font.setPointSize(11)
+        font.setPointSize(10)
         self.setFont(font)
-        color = QColor(CATEGORY_COLORS.get(category, "#333333"))
-        self.setForeground(color)
-        bg = QColor(color)
-        bg.setAlpha(20)
-        self.setBackground(bg)
+        self.setForeground(QColor("#e0e0e0"))
         self.setFlags(Qt.ItemIsEnabled)
-        self.setSizeHint(QSize(0, 36))
+        self.setSizeHint(QSize(0, 30))
 
     def category(self) -> str:
         return self._category
@@ -55,25 +51,24 @@ class ToolboxListWidget(QListWidget):
     def _setup_style(self):
         self.setStyleSheet("""
             QListWidget {
-                background-color: #2d2d2d;
-                border: 1px solid #444;
-                border-radius: 6px;
-                padding: 4px;
+                background-color: #252526;
+                border: 1px solid #3c3c3c;
+                border-radius: 4px;
+                padding: 2px;
             }
             QListWidget::item {
-                padding: 6px 8px;
-                border-radius: 4px;
-                margin: 2px 0;
+                padding: 4px 8px;
+                border-radius: 3px;
+                margin: 1px 0;
             }
             QListWidget::item:hover {
-                background-color: #3a3a3a;
+                background-color: #2a2d2e;
             }
             QListWidget::item:selected {
-                background-color: #1a3a5c;
-                border: 1px solid #4A90D9;
+                background-color: #094771;
             }
             QListWidget::item:selected:!active {
-                background-color: #1a3a5c;
+                background-color: #094771;
             }
         """)
 
@@ -93,56 +88,46 @@ class OperatorToolbox(QWidget):
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(8)
+        layout.setSpacing(6)
 
-        title_layout = QHBoxLayout()
-        title_layout.setContentsMargins(0, 0, 0, 0)
-        title_layout.setSpacing(6)
-
-        title_icon = QLabel("🧰")
-        title_icon.setStyleSheet("font-size: 16px;")
-        title_layout.addWidget(title_icon)
-
+        # Title
         title = QLabel("算子工具箱")
         title.setStyleSheet("""
-            font-size: 15px;
+            font-size: 14px;
             font-weight: bold;
-            color: #d4d4d4;
-            padding: 0;
+            color: #cccccc;
+            padding: 2px 0;
         """)
-        title_layout.addWidget(title)
-        title_layout.addStretch()
-        layout.addLayout(title_layout)
+        layout.addWidget(title)
 
+        # Search box
         self._search_box = QLineEdit()
-        self._search_box.setPlaceholderText("🔍 搜索算子...")
+        self._search_box.setPlaceholderText("搜索算子...")
         self._search_box.setClearButtonEnabled(True)
         self._search_box.textChanged.connect(self._filter_tools)
         self._search_box.installEventFilter(self)
         self._search_box.setStyleSheet("""
             QLineEdit {
-                padding: 8px 12px;
-                border: 1px solid #555;
-                border-radius: 6px;
+                padding: 6px 10px;
+                border: 1px solid #3c3c3c;
+                border-radius: 4px;
                 background-color: #3c3c3c;
-                font-size: 13px;
-                color: #d4d4d4;
+                font-size: 12px;
+                color: #cccccc;
             }
             QLineEdit:focus {
-                border: 2px solid #4A90D9;
+                border: 1px solid #007acc;
                 background-color: #2d2d2d;
-            }
-            QLineEdit:hover {
-                border-color: #777;
             }
         """)
         layout.addWidget(self._search_box)
 
+        # Tool list
         self._list = ToolboxListWidget(self)
         self._list.setDragEnabled(True)
         self._list.setDefaultDropAction(Qt.CopyAction)
         self._list.setSelectionMode(QListWidget.SingleSelection)
-        self._list.setIconSize(QSize(24, 24))
+        self._list.setIconSize(QSize(20, 20))
         self._list.setSpacing(0)
         layout.addWidget(self._list)
 
@@ -227,32 +212,25 @@ class OperatorToolbox(QWidget):
         drag.setMimeData(mime)
 
         display = self._get_display_name(item.tool_name())
-        icon = CATEGORY_ICONS.get(item.category(), "")
 
-        pixmap = QPixmap(160, 40)
+        pixmap = QPixmap(160, 36)
         pixmap.fill(Qt.transparent)
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.Antialiasing)
 
-        color = QColor(CATEGORY_COLORS.get(item.category(), "#333333"))
-        bg_color = QColor(color)
-        bg_color.setAlpha(230)
-        painter.setBrush(QBrush(bg_color))
+        # Simple dark background for drag preview
+        painter.setBrush(QBrush(QColor("#3c3c3c")))
         painter.setPen(Qt.NoPen)
-        painter.drawRoundedRect(0, 0, 160, 40, 8, 8)
+        painter.drawRoundedRect(0, 0, 160, 36, 4, 4)
 
-        painter.setPen(Qt.white)
-        icon_font = QFont("Segoe UI Emoji", 14)
-        painter.setFont(icon_font)
-        painter.drawText(12, 26, icon)
-
-        text_font = QFont("Microsoft YaHei", 11, QFont.Bold)
+        painter.setPen(QColor("#d4d4d4"))
+        text_font = QFont("Microsoft YaHei", 10)
         painter.setFont(text_font)
-        painter.drawText(40, 25, display)
+        painter.drawText(12, 23, display)
 
         painter.end()
         drag.setPixmap(pixmap)
-        drag.setHotSpot(QPoint(80, 20))
+        drag.setHotSpot(QPoint(80, 18))
 
         result = drag.exec_(Qt.CopyAction)
 

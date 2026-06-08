@@ -266,24 +266,24 @@ class PipelineEditor(QWidget):
         splitter = QSplitter(Qt.Horizontal)
 
         self.operator_toolbox = OperatorToolbox()
-        self.operator_toolbox.setMinimumWidth(200)
-        self.operator_toolbox.setMaximumWidth(300)
+        self.operator_toolbox.setMinimumWidth(150)
+        self.operator_toolbox.setMaximumWidth(220)
 
         self.flow_canvas = FlowCanvas()
         self.flow_canvas.setMinimumWidth(400)
 
         self.property_panel = PropertyPanel()
-        self.property_panel.setMinimumWidth(200)
-        self.property_panel.setMaximumWidth(300)
+        self.property_panel.setMinimumWidth(150)
+        self.property_panel.setMaximumWidth(220)
 
         splitter.addWidget(self.operator_toolbox)
         splitter.addWidget(self.flow_canvas)
         splitter.addWidget(self.property_panel)
 
         splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 3)
+        splitter.setStretchFactor(1, 4)
         splitter.setStretchFactor(2, 1)
-        splitter.setSizes([220, 600, 220])
+        splitter.setSizes([180, 700, 180])
 
         main_layout.addWidget(splitter, 1)
 
