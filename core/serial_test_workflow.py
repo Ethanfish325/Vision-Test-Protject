@@ -93,10 +93,10 @@ class ResultSender(ABC):
 
 
 class SimpleTextResultSender(ResultSender):
-    """简单文本结果 - 发送 'OK\\n' 或 'NG\\n'"""
+    """简单文本结果 - 发送 'OK(P)\\n' 或 'NG(F)\\n'"""
 
     def build_result(self, passed: bool) -> bytes:
-        return b"OK\n" if passed else b"NG\n"
+        return b"P\n" if passed else b"F\n"
 
 
 class HexResultSender(ResultSender):

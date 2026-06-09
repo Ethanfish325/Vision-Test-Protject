@@ -19,7 +19,7 @@ from PyQt5.QtGui import QPixmap, QImage, QKeySequence, QFont, QIcon
 from camera_manager import CameraManager, raw_to_opencv
 from .widgets.zoomable_label import ZoomableLabel, ZoomableImageWidget
 from core.config_manager import ConfigManager
-from core.log_manager import log_info, log_error, log_warning
+from core.log_manager import log_info, log_error, log_warning, LogManager
 from vision.vision_engine import VisionEngine
 from vision.pipeline import Pipeline
 
@@ -30,6 +30,23 @@ from .widgets.result_panel import ResultPanel
 
 from core.serial_comm import SerialCommManager
 from core.serial_test_workflow import SerialTestWorkflow, WorkflowConfig
+
+import hashlib
+from core.paths import USERS_FILE
+
+
+def _verify_password(input_password: str, stored_hash: str) -> bool:
+    """验证密码：对输入密码进行 SHA256 哈希，与存储的哈希值比对"""
+    return hashlib.sha256(input_password.encode('utf-8')).hexdigest() == stored_hash
+
+
+def _load_users() -> dict:
+    """加载 users.json 中的用户数据"""
+    try:
+        with open(USERS_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
 
 
 class StepLogPanel(QWidget):
@@ -106,8 +123,15 @@ class MainWindow(QMainWindow):
         self._annotated_image = None   # 最终标注结果图（原始图 + 所有 overlay 叠加）
 
         self._camera_panel = None      # 相机面板，延迟创建
-        self._pending_engineer_test = False  # 工程师模式测试标记：拍照后自动执行流水线
+        self._pending_engineer_test = False  # 设计模式测试标记：拍照后自动执行流水线
         self._pending_detect = False    # 生产模式标记：拍照后自动执行检测
+
+        # 生产模式最近一次检测的标注结果，用于实时预览时保持显示检测结果
+        self._last_annotated = None
+
+        # 用户角色与权限控制
+        self._current_user_role = "operator"   # 当前用户角色: operator / engineer / admin
+        self._current_user_name = "操作员"      # 当前用户显示名称
 
         # 串口通信与自动测试
         self._serial_comm: Optional[SerialCommManager] = None
@@ -176,8 +200,9 @@ class MainWindow(QMainWindow):
             QPushButton:hover { background-color: #4a4a4a; }
         """)
 
-        self.btn_engineer_mode = QPushButton("⚙ 工程师模式")
+        self.btn_engineer_mode = QPushButton("⚙ 设计模式")
         self.btn_engineer_mode.setCheckable(True)
+        self.btn_engineer_mode.setEnabled(False)  # 默认操作员模式，禁用设计模式
         self.btn_engineer_mode.setStyleSheet("""
             QPushButton {
                 background-color: #3c3c3c; color: #d4d4d4; padding: 4px 16px;
@@ -189,6 +214,10 @@ class MainWindow(QMainWindow):
                 color: #E65100;
             }
             QPushButton:hover { background-color: #4a4a4a; }
+            QPushButton:disabled {
+                background-color: #252525; color: #555555;
+                border: 1px solid #3a3a3a;
+            }
         """)
 
         layout.addWidget(self.btn_worker_mode)
@@ -206,6 +235,13 @@ class MainWindow(QMainWindow):
         parent_layout.addWidget(toolbar)
 
     def _switch_mode(self, index: int):
+        # 如果尝试切换到设计模式但当前用户不是工程师/管理员，阻止切换
+        if index == 1 and self._current_user_role not in ("engineer", "admin"):
+            QMessageBox.warning(self, "权限不足", "请先通过「用户」菜单登录工程师账号")
+            self.btn_worker_mode.setChecked(True)
+            self.btn_engineer_mode.setChecked(False)
+            return
+
         self.stack.setCurrentIndex(index)
         self.btn_worker_mode.setChecked(index == 0)
         self.btn_engineer_mode.setChecked(index == 1)
@@ -213,7 +249,118 @@ class MainWindow(QMainWindow):
         if index == 0:
             self.status_label.setText("生产模式")
         else:
-            self.status_label.setText("工程师模式")
+            self.status_label.setText("设计模式")
+
+    # ──────────────── 用户登录 / 权限控制 ────────────────
+
+    def _show_login_dialog(self):
+        """弹出登录对话框，选择角色并输入密码"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("登录")
+        dialog.setFixedSize(360, 220)
+        dialog.setStyleSheet("""
+            QDialog { background-color: #2d2d2d; }
+            QLabel { color: #d4d4d4; font-size: 14px; }
+            QComboBox, QLineEdit {
+                background-color: #3c3c3c; color: #d4d4d4;
+                border: 1px solid #555; border-radius: 3px;
+                padding: 6px 10px; font-size: 14px;
+            }
+            QPushButton {
+                background-color: #1a3a5c; color: #4A90D9;
+                border: 1px solid #2a5a8c; border-radius: 3px;
+                padding: 8px 24px; font-size: 14px; font-weight: bold;
+            }
+            QPushButton:hover { background-color: #2a4a7c; }
+        """)
+
+        layout = QVBoxLayout(dialog)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # 角色选择
+        role_layout = QHBoxLayout()
+        role_layout.addWidget(QLabel("登录为："))
+        role_combo = QComboBox()
+        role_combo.addItem("工程师", "engineer")
+        role_combo.addItem("管理员", "admin")
+        role_layout.addWidget(role_combo, 1)
+        layout.addLayout(role_layout)
+
+        # 密码输入
+        pwd_layout = QHBoxLayout()
+        pwd_layout.addWidget(QLabel("密  码："))
+        pwd_input = QLineEdit()
+        pwd_input.setEchoMode(QLineEdit.Password)
+        pwd_layout.addWidget(pwd_input, 1)
+        layout.addLayout(pwd_layout)
+
+        # 错误提示
+        error_label = QLabel("")
+        error_label.setStyleSheet("color: #ff5252; font-size: 12px;")
+        error_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(error_label)
+
+        # 按钮
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        btn_login = QPushButton("登录")
+        btn_cancel = QPushButton("取消")
+        btn_cancel.setStyleSheet("""
+            QPushButton { background-color: #3c3c3c; color: #d4d4d4;
+                           border: 1px solid #555; }
+            QPushButton:hover { background-color: #4a4a4a; }
+        """)
+        btn_layout.addWidget(btn_login)
+        btn_layout.addWidget(btn_cancel)
+        layout.addLayout(btn_layout)
+
+        def _do_login():
+            role_key = role_combo.currentData()
+            password = pwd_input.text()
+            if not password:
+                error_label.setText("请输入密码")
+                return
+
+            users = _load_users()
+            user_info = users.get(role_key)
+            if user_info and _verify_password(password, user_info["password_hash"]):
+                self._set_user_role(role_key, user_info["display_name"])
+                dialog.accept()
+            else:
+                error_label.setText("密码错误，请重试")
+                pwd_input.clear()
+                pwd_input.setFocus()
+
+        pwd_input.returnPressed.connect(_do_login)
+        btn_login.clicked.connect(_do_login)
+        btn_cancel.clicked.connect(dialog.reject)
+
+        dialog.exec_()
+
+    def _set_user_role(self, role: str, display_name: str):
+        """设置当前用户角色，更新 UI 状态"""
+        self._current_user_role = role
+        self._current_user_name = display_name
+
+        # 更新菜单显示
+        self.act_current_user.setText(f"当前用户：{display_name}")
+
+        # 工程师或管理员可以访问设计模式
+        is_engineer = role in ("engineer", "admin")
+        self.btn_engineer_mode.setEnabled(is_engineer)
+        self.act_logout.setEnabled(is_engineer)
+
+        # 如果当前在设计模式但角色不是工程师，自动切回生产模式
+        if not is_engineer and self.stack.currentIndex() == 1:
+            self._switch_mode(0)
+
+        log_info(f"用户切换: {display_name}({role})")
+
+    def _logout(self):
+        """退出登录，回到操作员模式"""
+        self._set_user_role("operator", "操作员")
+        self.status_label.setText("生产模式")
 
     def _build_worker_page(self):
         page = QWidget()
@@ -687,13 +834,24 @@ class MainWindow(QMainWindow):
         self.act_serial_comm.triggered.connect(self._open_serial_dialog)
         comm_menu.addAction(self.act_serial_comm)
 
-        view_menu = menubar.addMenu("视图")
-        self.act_switch_worker = QAction("生产模式", self)
-        self.act_switch_worker.triggered.connect(lambda: self._switch_mode(0))
-        self.act_switch_engineer = QAction("工程师模式", self)
-        self.act_switch_engineer.triggered.connect(lambda: self._switch_mode(1))
-        view_menu.addAction(self.act_switch_worker)
-        view_menu.addAction(self.act_switch_engineer)
+        # ── 用户菜单 ──
+        user_menu = menubar.addMenu("用户")
+        self.act_current_user = QAction("当前用户：操作员", self)
+        self.act_current_user.setEnabled(False)
+        self.act_switch_user = QAction("切换用户...", self)
+        self.act_switch_user.triggered.connect(self._show_login_dialog)
+        self.act_logout = QAction("退出登录", self)
+        self.act_logout.setEnabled(False)
+        self.act_logout.triggered.connect(self._logout)
+        user_menu.addAction(self.act_current_user)
+        user_menu.addSeparator()
+        user_menu.addAction(self.act_switch_user)
+        user_menu.addAction(self.act_logout)
+
+        sys_menu = menubar.addMenu("系统")
+        self.act_log_settings = QAction("日志限额设置", self)
+        self.act_log_settings.triggered.connect(self._show_log_settings)
+        sys_menu.addAction(self.act_log_settings)
 
         help_menu = menubar.addMenu("帮助")
         self.act_about = QAction("关于", self)
@@ -1056,7 +1214,10 @@ class MainWindow(QMainWindow):
                 return
             self._raw_image = img
             self._raw_height, self._raw_width = img.shape[:2]
-            self._show_worker_image(img)
+            # 导入新图像，清除上一次的检测标注结果
+            self._last_annotated = None
+            display_img = self._overlay_roi_on_image(img)
+            self._show_worker_image(display_img)
             self.worker_btn_detect.setEnabled(True)
             self.act_capture.setEnabled(True)
             self.status_label.setText(f"已导入图像: {os.path.basename(filepath)}")
@@ -1071,18 +1232,28 @@ class MainWindow(QMainWindow):
         self._raw_height = height
         self._raw_image = self._convert_to_cv(width, height, pixel_type, img_bytes)
         if self._raw_image is not None:
-            self._show_worker_image(self._raw_image)
+            # 如果有最近一次检测的标注结果，优先显示它（保持检测结果可见）
+            if self._last_annotated is not None:
+                self._show_worker_image(self._last_annotated)
+            else:
+                # 实时预览时，如果已设置流水线，在原始图像上叠加 ROI 框
+                display_img = self._overlay_roi_on_image(self._raw_image)
+                self._show_worker_image(display_img)
 
     def _on_capture_completed(self, width, height, pixel_type, img_bytes):
         self._raw_width = width
         self._raw_height = height
         self._raw_image = self._convert_to_cv(width, height, pixel_type, img_bytes)
+        # 新拍照，清除上一次的检测标注结果
+        self._last_annotated = None
         self.worker_btn_detect.setEnabled(True)
         self.act_capture.setEnabled(True)
         self.act_open_camera.setEnabled(False)
         self.act_close_camera.setEnabled(True)
         if self._raw_image is not None:
-            self._show_worker_image(self._raw_image)
+            # 拍照完成后，如果已设置流水线，在原始图像上叠加 ROI 框
+            display_img = self._overlay_roi_on_image(self._raw_image)
+            self._show_worker_image(display_img)
         self.status_label.setText("拍照完成，可开始检测")
         self.worker_status_label.setText("拍照完成，可开始检测")
 
@@ -1092,7 +1263,7 @@ class MainWindow(QMainWindow):
             self._serial_workflow.on_capture_completed(self._raw_image)
             return
 
-        # 工程师模式测试：拍照后自动执行流水线
+        # 设计模式测试：拍照后自动执行流水线
         if self._pending_engineer_test:
             self._pending_engineer_test = False
             self._show_engineer_image(self._raw_image)
@@ -1102,6 +1273,49 @@ class MainWindow(QMainWindow):
         if self._pending_detect:
             self._pending_detect = False
             self._do_detect()
+
+    def _overlay_roi_on_image(self, cv_img: np.ndarray) -> np.ndarray:
+        """在图像上叠加流水线中 MultiROI 工具定义的 ROI 区域框（绿色边框）。
+
+        用于生产模式实时预览时，让操作员看到检测区域的位置。
+        如果未设置流水线或没有 MultiROI 工具，则返回原始图像的副本。
+        """
+        if cv_img is None:
+            return cv_img
+        pipeline = self.vision_engine.pipeline
+        if pipeline is None:
+            return cv_img.copy()
+
+        result_img = cv_img.copy()
+        h_img, w_img = result_img.shape[:2]
+
+        for step in pipeline.steps:
+            if not step.enabled:
+                continue
+            tool_type = type(step.tool).__name__
+            if tool_type == "MultiROI":
+                raw_regions = step.tool.params.get("regions", [])
+                use_pct = step.tool.params.get("use_percentage", False)
+
+                for r in raw_regions:
+                    if isinstance(r, dict) and r.get("enabled", True):
+                        name = r.get("name", "未命名")
+                        if use_pct:
+                            x = int(r.get("x", 0) / 100.0 * w_img)
+                            y = int(r.get("y", 0) / 100.0 * h_img)
+                            w = int(r.get("width", r.get("w", 100)) / 100.0 * w_img)
+                            h = int(r.get("height", r.get("h", 100)) / 100.0 * h_img)
+                        else:
+                            x = r.get("x", 0)
+                            y = r.get("y", 0)
+                            w = r.get("width", r.get("w", 100))
+                            h = r.get("height", r.get("h", 100))
+
+                        # 绘制绿色 ROI 框（预览时统一绿色，无检测结果）
+                        cv2.rectangle(result_img, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                        cv2.putText(result_img, name, (x, y - 5),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        return result_img
 
     def _cv_to_pixmap(self, cv_img) -> QPixmap:
         """将 OpenCV 图像转换为 QPixmap"""
@@ -1244,7 +1458,7 @@ class MainWindow(QMainWindow):
         self._execute_engineer_test()
 
     def _execute_engineer_test(self):
-        """执行工程师模式流水线测试（内部方法，_raw_image 必须非空）"""
+        """执行设计模式流水线测试（内部方法，_raw_image 必须非空）"""
         self.eng_btn_run_preview.setEnabled(False)
         self.eng_btn_run_preview.setText("执行中...")
         QApplication.processEvents()
@@ -1374,6 +1588,7 @@ class MainWindow(QMainWindow):
                 self.worker_status_label.setText("检测不通过 (NG)")
 
             if annotated is not None:
+                self._last_annotated = annotated
                 self._show_worker_image(annotated)
 
             for i, r in enumerate(results):
@@ -1410,6 +1625,180 @@ class MainWindow(QMainWindow):
         finally:
             self.worker_btn_detect.setEnabled(True)
             self.worker_btn_detect.setText("📷 开始检测")
+
+    def _show_log_settings(self):
+        """打开日志限额设置对话框"""
+        from core.paths import LOGS_DIR, ERRORS_DIR
+        from core.log_manager import _get_dir_size, _CLEANUP_DIRS
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("存储空间限额设置")
+        dialog.setMinimumWidth(480)
+        dialog.setStyleSheet("""
+            QDialog { background-color: #2d2d2d; }
+            QLabel { color: #d4d4d4; font-size: 14px; }
+            QSpinBox, QDoubleSpinBox {
+                background-color: #3c3c3c; color: #d4d4d4;
+                border: 1px solid #555; border-radius: 3px;
+                padding: 4px 8px; font-size: 14px;
+            }
+            QPushButton {
+                background-color: #3c3c3c; color: #d4d4d4;
+                padding: 6px 20px; border: 1px solid #555;
+                border-radius: 3px; font-size: 14px;
+            }
+            QPushButton:hover { background-color: #4a4a4a; }
+            QPushButton#btn_apply {
+                background-color: #1a3a5c; color: #4A90D9;
+                border: 1px solid #2a5a8c; font-weight: bold;
+            }
+            QPushButton#btn_apply:hover { background-color: #2a4a7c; }
+            QPushButton#btn_cleanup {
+                background-color: #E65100; color: #fff;
+                border: 1px solid #FF6D00; font-weight: bold;
+            }
+            QPushButton#btn_cleanup:hover { background-color: #BF360C; }
+        """)
+
+        layout = QVBoxLayout(dialog)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 16, 20, 16)
+
+        # 计算 logs + errors 总大小
+        def _calc_total_size():
+            total = 0
+            for d in _CLEANUP_DIRS:
+                total += _get_dir_size(d)
+            return total
+
+        try:
+            current_size = _calc_total_size()
+            size_gb = current_size / (1024 ** 3)
+            size_str = f"{size_gb:.2f} GB" if size_gb >= 1 else f"{current_size / (1024 ** 2):.1f} MB"
+        except Exception:
+            size_str = "未知"
+
+        # 分别显示 logs 和 errors 的大小
+        try:
+            logs_size = _get_dir_size(LOGS_DIR)
+            errs_size = _get_dir_size(ERRORS_DIR)
+            logs_str = f"{logs_size / (1024**3):.2f} GB" if logs_size >= 1024**3 else f"{logs_size / (1024**2):.1f} MB"
+            errs_str = f"{errs_size / (1024**3):.2f} GB" if errs_size >= 1024**3 else f"{errs_size / (1024**2):.1f} MB"
+            detail_str = f"   ├ 日志(logs): {logs_str}\n   └ 错误数据(errors): {errs_str}"
+        except Exception:
+            detail_str = ""
+
+        size_label = QLabel(f"📂 当前数据大小: {size_str}")
+        size_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #4fc3f7;")
+        layout.addWidget(size_label)
+
+        detail_label = QLabel(detail_str)
+        detail_label.setStyleSheet("color: #999; font-size: 13px; padding-left: 8px;")
+        layout.addWidget(detail_label)
+
+        # 日志限额设置
+        form_layout = QFormLayout()
+        form_layout.setSpacing(10)
+        form_layout.setLabelAlignment(Qt.AlignRight)
+
+        max_size_spin = QDoubleSpinBox(dialog)
+        max_size_spin.setRange(1, 9999)
+        max_size_spin.setDecimals(1)
+        max_size_spin.setSuffix(" GB")
+        max_size_spin.setValue(self.config.get('system.log_max_size_gb', 50))
+        max_size_spin.setToolTip("当 logs + errors 总大小超过此限额时自动清理")
+        form_layout.addRow("最大限额:", max_size_spin)
+
+        ratio_spin = QDoubleSpinBox(dialog)
+        ratio_spin.setRange(0.1, 0.9)
+        ratio_spin.setDecimals(1)
+        ratio_spin.setSingleStep(0.1)
+        ratio_spin.setSuffix(" (× 最大限额)")
+        ratio_spin.setValue(self.config.get('system.log_cleanup_ratio', 0.5))
+        ratio_spin.setToolTip("超出限额后清理到 最大限额 × 此比例")
+        form_layout.addRow("清理目标比例:", ratio_spin)
+
+        layout.addLayout(form_layout)
+
+        # 说明文字
+        hint = QLabel(
+            "💡 当 logs + errors 总大小超过「最大限额」时，系统会自动\n"
+            "   从最早的文件开始删除，直到总大小降到「最大限额 × 比例」以下。\n"
+            "   ⚠ 注意：仅清理 logs 和 errors 目录下的文件，不影响方案配置。\n"
+            f"   当前设置: 超过 {max_size_spin.value():.0f}GB 时清理到 {max_size_spin.value() * ratio_spin.value():.0f}GB"
+        )
+        hint.setStyleSheet("color: #999; font-size: 13px; padding: 8px; "
+                           "background-color: #252525; border-radius: 4px;")
+        layout.addWidget(hint)
+
+        # 更新提示文字
+        def _update_hint():
+            max_val = max_size_spin.value()
+            ratio_val = ratio_spin.value()
+            hint.setText(
+                "💡 当 logs + errors 总大小超过「最大限额」时，系统会自动\n"
+                "   从最早的文件开始删除，直到总大小降到「最大限额 × 比例」以下。\n"
+                "   ⚠ 注意：仅清理 logs 和 errors 目录下的文件，不影响方案配置。\n"
+                f"   当前设置: 超过 {max_val:.0f}GB 时清理到 {max_val * ratio_val:.0f}GB"
+            )
+        max_size_spin.valueChanged.connect(_update_hint)
+        ratio_spin.valueChanged.connect(_update_hint)
+
+        # 按钮
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(10)
+
+        btn_cleanup = QPushButton("🗑 立即清理")
+        btn_cleanup.setObjectName("btn_cleanup")
+        btn_cleanup.setToolTip("立即按当前设置执行一次清理（删除 logs 和 errors 中最旧的文件）")
+        btn_cleanup.clicked.connect(lambda: self._do_manual_cleanup(dialog))
+        btn_layout.addWidget(btn_cleanup)
+
+        btn_layout.addStretch()
+
+        btn_cancel = QPushButton("取消")
+        btn_cancel.clicked.connect(dialog.reject)
+        btn_layout.addWidget(btn_cancel)
+
+        btn_apply = QPushButton("✓ 应用")
+        btn_apply.setObjectName("btn_apply")
+        btn_apply.clicked.connect(lambda: self._save_log_settings(
+            dialog, max_size_spin.value(), ratio_spin.value()))
+        btn_layout.addWidget(btn_apply)
+
+        layout.addLayout(btn_layout)
+
+        dialog.exec_()
+
+    def _save_log_settings(self, dialog: QDialog, max_size_gb: float, cleanup_ratio: float):
+        """保存日志限额设置"""
+        self.config.set('system.log_max_size_gb', max_size_gb)
+        self.config.set('system.log_cleanup_ratio', cleanup_ratio)
+        self.config.save()
+        log_info(f"存储限额设置已更新: 最大={max_size_gb}GB, 清理比例={cleanup_ratio}")
+        QMessageBox.information(dialog, "成功", "存储限额设置已保存")
+        dialog.accept()
+
+    def _do_manual_cleanup(self, parent: QWidget):
+        """立即执行一次清理（清理 logs + errors 中最旧的文件）"""
+        from core.log_manager import _get_dir_size, _CLEANUP_DIRS
+        max_size_gb = self.config.get('system.log_max_size_gb', 50)
+        cleanup_ratio = self.config.get('system.log_cleanup_ratio', 0.5)
+        max_size = int(max_size_gb * 1024 ** 3)
+        LogManager.cleanup_now(max_size=max_size, cleanup_ratio=cleanup_ratio)
+        log_info(f"手动触发存储清理: 最大={max_size_gb}GB, 比例={cleanup_ratio}")
+
+        # 刷新大小显示
+        try:
+            total = 0
+            for d in _CLEANUP_DIRS:
+                total += _get_dir_size(d)
+            size_gb = total / (1024 ** 3)
+            size_str = f"{size_gb:.2f} GB" if size_gb >= 1 else f"{total / (1024 ** 2):.1f} MB"
+        except Exception:
+            size_str = "未知"
+
+        QMessageBox.information(parent, "清理完成", f"清理完成\n当前 logs + errors 总大小: {size_str}")
 
     def _show_about(self):
         QMessageBox.about(self, "关于",
@@ -1544,6 +1933,7 @@ class MainWindow(QMainWindow):
 
             # 更新显示
             if annotated is not None:
+                self._last_annotated = annotated
                 self._show_worker_image(annotated)
 
             # 更新 OK/NG 判断

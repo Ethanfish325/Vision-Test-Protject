@@ -2,9 +2,110 @@
 
 import logging
 import os
+import time
+import threading
 from logging.handlers import TimedRotatingFileHandler
+from typing import Optional
 
-from core.paths import LOGS_DIR
+from core.paths import ERRORS_DIR, LOGS_DIR
+
+# 默认日志限额：50 GB
+_DEFAULT_MAX_LOG_SIZE = 50 * 1024 ** 3
+# 清理目标比例：清理到最大限额的一半
+_DEFAULT_CLEANUP_RATIO = 0.5
+# 需要监控和清理的目录列表（只清理这些目录下的文件，不碰 schemes 等）
+_CLEANUP_DIRS = [LOGS_DIR, ERRORS_DIR]
+
+
+def _get_dir_size(path: str) -> int:
+    """递归计算目录总大小（字节）"""
+    total = 0
+    try:
+        for entry in os.scandir(path):
+            if entry.is_file(follow_symlinks=False):
+                total += entry.stat().st_size
+            elif entry.is_dir(follow_symlinks=False):
+                total += _get_dir_size(entry.path)
+    except (PermissionError, OSError):
+        pass
+    return total
+
+
+def _get_all_files_sorted(dirs: list) -> list:
+    """获取多个目录下所有文件，按修改时间升序排列（最早的在前）"""
+    files = []
+    for d in dirs:
+        try:
+            for root, _, filenames in os.walk(d):
+                for fname in filenames:
+                    fpath = os.path.join(root, fname)
+                    try:
+                        mtime = os.path.getmtime(fpath)
+                        files.append((fpath, mtime))
+                    except (PermissionError, OSError):
+                        continue
+        except (PermissionError, OSError):
+            continue
+    files.sort(key=lambda x: x[1])  # 按修改时间升序
+    return files
+
+
+def _get_total_size(dirs: list) -> int:
+    """计算多个目录的总大小"""
+    total = 0
+    for d in dirs:
+        total += _get_dir_size(d)
+    return total
+
+
+def _cleanup_old_logs(max_size: int, cleanup_ratio: float):
+    """
+    当监控目录总大小超过 max_size 时，从最早的文件开始删除，
+    直到总大小 <= max_size * cleanup_ratio。
+    只删除 _CLEANUP_DIRS 列表中的文件。
+    """
+    current_size = _get_total_size(_CLEANUP_DIRS)
+    if current_size <= max_size:
+        return
+
+    target_size = int(max_size * cleanup_ratio)
+    files = _get_all_files_sorted(_CLEANUP_DIRS)
+
+    for file_path, _ in files:
+        if current_size <= target_size:
+            break
+        try:
+            file_size = os.path.getsize(file_path)
+            os.remove(file_path)
+            current_size -= file_size
+        except (PermissionError, OSError):
+            continue
+
+
+class _SizeCheckTimedRotatingFileHandler(TimedRotatingFileHandler):
+    """
+    继承 TimedRotatingFileHandler，在每次实际写入日志后检查并清理日志空间。
+    """
+
+    def __init__(self, *args, **kwargs):
+        self._max_log_size: int = kwargs.pop('max_log_size', _DEFAULT_MAX_LOG_SIZE)
+        self._cleanup_ratio: float = kwargs.pop('cleanup_ratio', _DEFAULT_CLEANUP_RATIO)
+        self._last_check_time: float = 0
+        self._check_interval: float = 60.0  # 两次检查的最小间隔（秒），避免频繁扫描磁盘
+        self._lock = threading.Lock()
+        super().__init__(*args, **kwargs)
+
+    def emit(self, record: logging.LogRecord):
+        """写入日志记录，写入后检查是否需要清理"""
+        super().emit(record)
+        now = time.time()
+        if now - self._last_check_time >= self._check_interval:
+            self._last_check_time = now
+            if self._lock.acquire(blocking=False):
+                try:
+                    _cleanup_old_logs(self._max_log_size, self._cleanup_ratio)
+                finally:
+                    self._lock.release()
 
 
 class LogManager:
@@ -33,13 +134,26 @@ class LogManager:
             datefmt='%Y-%m-%d %H:%M:%S'
         )
 
+        # 从配置读取日志限额参数
+        try:
+            from core.config_manager import ConfigManager
+            cfg = ConfigManager()
+            max_size_gb = cfg.get('system.log_max_size_gb', 50)
+            cleanup_ratio = cfg.get('system.log_cleanup_ratio', 0.5)
+            max_log_size = int(max_size_gb * 1024 ** 3)
+        except Exception:
+            max_log_size = _DEFAULT_MAX_LOG_SIZE
+            cleanup_ratio = _DEFAULT_CLEANUP_RATIO
+
         log_file = os.path.join(LOGS_DIR, 'vision_system.log')
-        file_handler = TimedRotatingFileHandler(
+        file_handler = _SizeCheckTimedRotatingFileHandler(
             log_file,
             when='midnight',
             interval=1,
             backupCount=30,
-            encoding='utf-8'
+            encoding='utf-8',
+            max_log_size=max_log_size,
+            cleanup_ratio=cleanup_ratio,
         )
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(formatter)
@@ -53,6 +167,23 @@ class LogManager:
 
     def get_logger(self) -> logging.Logger:
         return self._logger
+
+    @staticmethod
+    def cleanup_now(max_size: Optional[int] = None, cleanup_ratio: Optional[float] = None):
+        """
+        手动触发日志和错误数据清理。
+        清理范围包括 logs 和 errors 目录下的文件（按修改时间从早到晚删除）。
+        可在外部（如定时任务、启动时）主动调用。
+
+        Args:
+            max_size: 最大字节数，默认 50GB
+            cleanup_ratio: 清理目标比例，默认 0.5（清理到一半）
+        """
+        if max_size is None:
+            max_size = _DEFAULT_MAX_LOG_SIZE
+        if cleanup_ratio is None:
+            cleanup_ratio = _DEFAULT_CLEANUP_RATIO
+        _cleanup_old_logs(max_size, cleanup_ratio)
 
 
 _log_manager = LogManager()

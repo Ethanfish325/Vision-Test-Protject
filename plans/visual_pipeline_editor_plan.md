@@ -182,7 +182,7 @@
 | `vision/tools/feature_extract.py` | 新增 `ContourFilter`、`LineDetection`、`RectangleDetection`；移出 `BlobDetection`、`Threshold` |
 | `vision/tools/measure.py` | 新增 `PointMeasure`、`LineMeasure`、`AngleMeasure`；移出 `CircleDetection` |
 | `vision/tools/recognize.py` | 新增 `EdgeMatch`、`FastMatch` |
-| `ui/main_window.py` | 重构工程师模式页面，集成新组件（三栏布局） |
+| `ui/main_window.py` | 重构设计模式页面，集成新组件（三栏布局） |
 | `vision/pipeline.py` | 新增工具注册表导入（geometry、utility） |
 
 ### 5.3 保留文件（不修改）
@@ -247,7 +247,7 @@
 
 ### 第三阶段：集成到主窗口
 
-1. **重构 `main_window.py` 工程师模式**
+1. **重构 `main_window.py` 设计模式**
    - 替换为三栏布局
    - 集成算子工具栏、流程画布、图像+结果区
 
@@ -268,7 +268,7 @@
 
 ```mermaid
 graph TB
-    subgraph UI层 - 工程师模式
+    subgraph UI层 - 设计模式
         OT[OperatorToolbox 算子工具栏]
         FC[FlowCanvas 流程画布]
         RP[ResultPanel 图像+结果区]

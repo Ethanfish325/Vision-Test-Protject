@@ -7,7 +7,7 @@
         "input_source": "原始图像",
         "regions": [
           {
-            "name": "标签1",
+            "name": "Label1",
             "x": 2001,
             "y": 629,
             "width": 346,
@@ -15,7 +15,7 @@
             "enabled": true
           },
           {
-            "name": "标签2",
+            "name": "Label2",
             "x": 988,
             "y": 576,
             "width": 356,
@@ -23,7 +23,7 @@
             "enabled": true
           },
           {
-            "name": "标签3",
+            "name": "Label3",
             "x": 86,
             "y": 548,
             "width": 331,
@@ -31,7 +31,7 @@
             "enabled": true
           },
           {
-            "name": "脚垫1",
+            "name": "Foot mat1",
             "x": 105,
             "y": 264,
             "width": 230,
@@ -39,7 +39,7 @@
             "enabled": true
           },
           {
-            "name": "脚垫2",
+            "name": "Foot mat2",
             "x": 2500,
             "y": 290,
             "width": 230,
@@ -47,7 +47,7 @@
             "enabled": true
           },
           {
-            "name": "脚垫3",
+            "name": "Foot mat3",
             "x": 2480,
             "y": 1420,
             "width": 230,
@@ -55,7 +55,7 @@
             "enabled": true
           },
           {
-            "name": "脚垫4",
+            "name": "Foot mat4",
             "x": 80,
             "y": 1370,
             "width": 230,
@@ -71,7 +71,7 @@
     {
       "tool_type": "TemplateMatch",
       "params": {
-        "_input_source": "region:脚垫1",
+        "_input_source": "region:Foot mat1",
         "template_path": "D:/Python project/VisionTest/model/deep/OK1.jpg",
         "angle_start": -30,
         "min_matches": 1,
@@ -93,7 +93,7 @@
       "tool_type": "TemplateMatch",
       "params": {
         "template_path": "D:/Python project/VisionTest/model/deep/OK2.jpg",
-        "_input_source": "region:脚垫2",
+        "_input_source": "region:Foot mat2",
         "mode": "standard",
         "method": "TM_CCOEFF_NORMED",
         "threshold": 0.8,
@@ -114,7 +114,7 @@
       "tool_type": "TemplateMatch",
       "params": {
         "template_path": "D:/Python project/VisionTest/model/deep/OK3.jpg",
-        "_input_source": "region:脚垫3",
+        "_input_source": "region:Foot mat3",
         "mode": "standard",
         "method": "TM_CCOEFF_NORMED",
         "threshold": 0.8,
@@ -146,7 +146,8 @@
         "min_matches": 10,
         "nms_distance": 20,
         "use_mask": false,
-        "mask_path": ""
+        "mask_path": "",
+        "_input_source": "region:Foot mat4"
       },
       "enabled": true,
       "judge_rule": null
@@ -167,7 +168,7 @@
         "nms_distance": 20,
         "use_mask": false,
         "mask_path": "",
-        "_input_source": "current"
+        "_input_source": "region:Label3"
       },
       "enabled": true,
       "judge_rule": null
@@ -187,7 +188,8 @@
         "min_matches": 10,
         "nms_distance": 20,
         "use_mask": false,
-        "mask_path": ""
+        "mask_path": "",
+        "_input_source": "region:Label2"
       },
       "enabled": true,
       "judge_rule": null
@@ -207,7 +209,8 @@
         "min_matches": 10,
         "nms_distance": 20,
         "use_mask": false,
-        "mask_path": ""
+        "mask_path": "",
+        "_input_source": "region:Label1"
       },
       "enabled": true,
       "judge_rule": null

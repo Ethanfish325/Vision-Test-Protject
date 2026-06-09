@@ -61,7 +61,8 @@ class VisionTool(ABC):
         pass
 
     def _get_input_image(self, context: PipelineContext) -> np.ndarray:
-        input_source = self.params.get("_input_source", "current")
+        # 兼容旧方案文件：可能存的是 "input_source"（无下划线前缀）
+        input_source = self.params.get("_input_source") or self.params.get("input_source", "current")
 
         # 保存完整帧，供子类在返回 processed_image 时使用
         # 注意：如果上游有灰度化步骤，current_image 可能是单通道
@@ -73,7 +74,12 @@ class VisionTool(ABC):
 
         if input_source == "original":
             return context.original_image.copy()
-        elif input_source.startswith("region:"):
+
+        # 兼容中文 "区域:" 前缀（旧方案文件手动编辑可能使用中文）
+        if input_source.startswith("区域:"):
+            input_source = "region:" + input_source[3:]
+
+        if input_source.startswith("region:"):
             region_name = input_source[7:]
             if region_name in context.regions:
                 x, y, w, h = context.regions[region_name]

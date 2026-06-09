@@ -345,7 +345,10 @@ class PipelineEditor(QWidget):
             try:
                 tool = create_tool(slot.tool_name)
                 if tool:
-                    tool.params = slot.params.copy()
+                    # 合并参数：以保存的参数为主，缺失的键用工具的默认值补充
+                    defaults = tool.params.copy()
+                    defaults.update(slot.params)
+                    tool.params = defaults
                     self._pipeline.add_step(tool, enabled=slot.is_enabled())
             except Exception:
                 continue
@@ -372,7 +375,10 @@ class PipelineEditor(QWidget):
         tool = create_tool(slot.tool_name)
         if tool is None:
             return
-        tool.params = slot.params.copy()
+        # 合并参数：以保存的参数为主，缺失的键用工具的默认值补充
+        defaults = tool.params.copy()
+        defaults.update(slot.params)
+        tool.params = defaults
 
         # 注意: VisionTool.__init__ 会覆盖 display_name 为类名，所以用类名比较
         if tool.name == "MultiROI":

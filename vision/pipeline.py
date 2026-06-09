@@ -181,7 +181,15 @@ class Pipeline:
             step = self.steps.pop(from_index)
             self.steps.insert(to_index, step)
 
-    def execute(self, cv_image: np.ndarray) -> Tuple[bool, List[ToolResult], np.ndarray]:
+    def execute(self, cv_image: np.ndarray) -> Tuple[bool, List[ToolResult], np.ndarray, Dict[int, str]]:
+        """执行流水线所有步骤。
+
+        Returns:
+            all_passed: 是否全部通过
+            results: 各步骤的 ToolResult 列表
+            current_image: 流水线处理后的最终图像
+            step_roi_map: {step_index: roi_name} 映射，记录每个步骤使用的 ROI 区域名称
+        """
         context = PipelineContext(
             original_image=cv_image.copy(),
             current_image=cv_image.copy(),
@@ -191,6 +199,7 @@ class Pipeline:
 
         results: List[ToolResult] = []
         all_passed = True
+        step_roi_map: Dict[int, str] = {}  # step_index -> roi_name
 
         for i, step in enumerate(self.steps):
             if not step.enabled:
@@ -205,6 +214,15 @@ class Pipeline:
                 ))
                 continue
 
+            # 记录该步骤使用的 ROI 区域名称（如果配置了 _input_source 指向 region）
+            # 兼容旧方案文件：可能存的是 "input_source"（无下划线前缀）
+            input_source = step.tool.params.get("_input_source") or step.tool.params.get("input_source", "current")
+            # 兼容中文 "区域:" 前缀（旧方案文件手动编辑可能使用中文）
+            if input_source and input_source.startswith("区域:"):
+                input_source = "region:" + input_source[3:]
+            if input_source and input_source.startswith("region:"):
+                step_roi_map[i] = input_source[7:]
+
             try:
                 start = time.time()
                 result = step.tool.process(context)
@@ -218,19 +236,20 @@ class Pipeline:
 
                 if not result.success:
                     all_passed = False
-                    break
+                    # 执行失败但仍继续后续步骤，让所有工具都有机会执行
+                    # 但不再更新 context.current_image，保持上一帧图像
+                else:
+                    if result.processed_image is not None:
+                        context.current_image = result.processed_image
 
-                if result.processed_image is not None:
-                    context.current_image = result.processed_image
+                    if result.regions:
+                        context.regions.update(result.regions)
 
-                if result.regions:
-                    context.regions.update(result.regions)
+                    context.results[type(step.tool).__name__] = result
 
-                context.results[type(step.tool).__name__] = result
-
-                if step.judge_rule and not result.passed:
+                if not result.passed:
                     all_passed = False
-                    break
+                    # 不 break，继续执行后续步骤
 
             except Exception as e:
                 results.append(ToolResult(
@@ -243,9 +262,9 @@ class Pipeline:
                     elapsed_ms=0.0,
                 ))
                 all_passed = False
-                break
+                # 不 break，继续执行后续步骤
 
-        return all_passed, results, context.current_image
+        return all_passed, results, context.current_image, step_roi_map
 
     def _apply_judge_rule(self, result: ToolResult, rule: Dict) -> bool:
         rule_type = rule.get("type", "threshold")

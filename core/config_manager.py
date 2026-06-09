@@ -34,6 +34,8 @@ class ConfigManager:
             'language': 'zh-CN',
             'auto_login': False,
             'retention_days': 90,
+            'log_max_size_gb': 50,
+            'log_cleanup_ratio': 0.5,
         },
         'display': {
             'fullscreen': False,
